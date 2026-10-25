@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval' 'sha256-wO5XZT06GnxeHzA2mBZsNH/hbEVabg0UufIZoVZtA1w='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Orb Runner · ARVR Arcade</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05050b;--text:#eef0ff;--muted:#9aa0c3;--c:#35d9ff;--line:#262840}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;overflow:hidden}
+  #bar{position:fixed;top:0;left:0;right:0;height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;
+       background:rgba(8,8,18,.85);border-bottom:1px solid var(--line);z-index:5;backdrop-filter:blur(6px)}
+  #bar a,#bar button{font:600 13px Inter,sans-serif;color:var(--text);background:#151729;border:1px solid var(--line);border-radius:9px;
+       padding:7px 12px;text-decoration:none;cursor:pointer;white-space:nowrap}
+  #bar a:hover,#bar button:hover{border-color:var(--c)}
+  #bar h1{font:800 16px Orbitron,sans-serif;margin:0;color:var(--c);white-space:nowrap}
+  #help{flex:1;min-width:0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #stage{position:fixed;top:48px;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center}
+  #unity-canvas{width:100%;height:100%;display:block;background:#000;outline:none}
+  #loader{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:var(--bg)}
+  #loader h2{font:800 clamp(28px,6vw,56px) Orbitron,sans-serif;margin:0;color:var(--c);text-shadow:0 0 30px var(--c)}
+  .track{width:min(420px,80vw);height:10px;border-radius:99px;background:#1a1c30;overflow:hidden;border:1px solid var(--line)}
+  .fill{height:100%;width:0;background:var(--c);transition:width .2s}
+  #pct{color:var(--muted);font-size:13px}
+  #err{display:none;max-width:560px;padding:14px;border-radius:12px;background:#2a0f14;border:1px solid #6b2230;color:#ffc2cb;font-size:14px;text-align:center}
+  @media (max-width:640px){#help{display:none}}
+</style>
+</head>
+<body>
+<div id="bar">
+  <a href="../../index.html">◂ Arcade</a>
+  <h1>Orb Runner</h1>
+  <div id="help">WASD / Arrows roll · Space dash (and start) · R restart · M music · collect orbs, dodge red hunters</div>
+  <button id="fs" type="button">⛶ Fullscreen</button>
+</div>
+<div id="stage">
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="loader">
+    <h2>Orb Runner</h2>
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div id="pct">Loading… 0%</div>
+    <div id="err"></div>
+  </div>
+</div>
+<script>
+  var canvas = document.getElementById("unity-canvas");
+  var fill = document.getElementById("fill"), pct = document.getElementById("pct");
+  var errBox = document.getElementById("err");
+  canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  // keep arrow keys / space from scrolling the page
+  window.addEventListener("keydown", function (e) {
+    if ([" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.key) >= 0 && (e.target === canvas || e.target === document.body)) e.preventDefault();
+  });
+  function showError(msg) {
+    errBox.style.display = "block";
+    errBox.textContent = msg;
+  }
+  var unityInstance = null;
+  document.getElementById("fs").onclick = function () {
+    try {
+      var el = document.documentElement;
+      var pr = el.requestFullscreen ? el.requestFullscreen() : null;
+      if (pr && pr.catch) pr.catch(function () { if (unityInstance) unityInstance.SetFullscreen(1); });
+      else if (!pr && unityInstance) unityInstance.SetFullscreen(1);
+    } catch (e) {}
+    canvas.focus();
+  };
+  if (document.fullscreenEnabled === false) document.getElementById("fs").style.display = "none";
+  if (!window.WebAssembly) showError("Your browser does not support WebAssembly. Please use a recent Chrome, Edge, Firefox or Safari.");
+  var buildUrl = "Build";
+  var config = {
+    arguments: [],
+    dataUrl: buildUrl + "/Web.data.unityweb",
+    frameworkUrl: buildUrl + "/Web.framework.js.unityweb",
+    codeUrl: buildUrl + "/Web.wasm.unityweb",
+    streamingAssetsUrl: "StreamingAssets",
+    companyName: "ARVR Lab",
+    productName: "Orb Runner",
+    productVersion: "1.0",
+    showBanner: function (msg, type) { if (type === "error") showError(msg); else console.log("[unity]", msg); }
+  };
+  if (window.WebAssembly) {
+  var script = document.createElement("script");
+  script.src = buildUrl + "/Web.loader.js";
+  script.onload = function () {
+    createUnityInstance(canvas, config, function (p) {
+      var v = Math.round(p * 100);
+      fill.style.width = v + "%";
+      pct.textContent = v < 100 ? "Loading… " + v + "%" : "Starting…";
+    }).then(function (inst) {
+      unityInstance = inst;
+      document.getElementById("loader").style.display = "none";
+      canvas.focus();
+    }).catch(function (m) { showError("Could not start the game: " + m); });
+  };
+  script.onerror = function () { showError("Could not load the game files. Check your internet connection and refresh."); };
+  document.body.appendChild(script);
+  }
+  canvas.addEventListener("pointerdown", function () { canvas.focus(); });
+</script>
+</body>
+</html>
